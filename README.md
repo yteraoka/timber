@@ -7,9 +7,19 @@ TimeTree Web 版が内部で利用している API を使っています。公�
 ## 必要なもの
 
 - [uv](https://docs.astral.sh/uv/)
-  - 依存パッケージ (`requests`, `python-dateutil`) はスクリプト内の [PEP 723](https://peps.python.org/pep-0723/) メタデータに記載しており、`uv run` が自動でインストールします
+  - Python 本体と依存パッケージ (`requests`, `python-dateutil`) は `uv run` が自動でインストールします。使う Python のバージョンは `.python-version`、依存パッケージのバージョンは `uv.lock` で固定しています
 - メールアドレスとパスワードでログインできる TimeTree アカウント
   - Apple / Google / Facebook アカウントでのログインには対応していません
+
+## セットアップ
+
+```sh
+git clone https://github.com/yteraoka/timber.git
+cd timber
+uv sync
+```
+
+`uv sync` を省略しても、初回の `uv run` で同じ準備 (`.venv` の作成と依存パッケージのインストール) が行われます。
 
 ## 使い方
 
@@ -24,16 +34,21 @@ export TIMETREE_PASSWORD=your-password
 
 ```sh
 # 今日の予定
-uv run timetree.py
+uv run timetree
 
 # 指定日の予定
-uv run timetree.py 2026-10-01
+uv run timetree 2026-10-01
 
 # カレンダーを指定し、キープを除外して JSON で出力
-uv run timetree.py 2026-10-01 -c 家族の予定 --exclude-keep --json
+uv run timetree 2026-10-01 -c 家族の予定 --exclude-keep --json
 ```
 
-`timetree.py` には実行権限と shebang があるので、`./timetree.py 2026-10-01` としても実行できます。
+リポジトリの外からも `timetree` コマンドとして使いたい場合は、uv のツールとしてインストールします。
+
+```sh
+uv tool install .
+timetree 2026-10-01
+```
 
 ### オプション
 

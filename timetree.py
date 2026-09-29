@@ -1,18 +1,10 @@
-#!/usr/bin/env -S uv run --script
-# /// script
-# requires-python = ">=3.10"
-# dependencies = [
-#     "requests",
-#     "python-dateutil",
-# ]
-# ///
 """TimeTree の指定日の予定を取得する。
 
 TimeTree Web 版 (https://timetreeapp.com) が内部で利用している API を使う。
 認証情報は環境変数 TIMETREE_USERNAME / TIMETREE_PASSWORD から読む。
 
-    uv run timetree.py 2026-09-30
-    uv run timetree.py 2026-09-30 --calendar 家族の予定 --json
+    uv run timetree 2026-09-30
+    uv run timetree 2026-09-30 --calendar 家族の予定 --json
 """
 
 from __future__ import annotations
