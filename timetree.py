@@ -25,6 +25,7 @@ import sys
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
@@ -37,6 +38,15 @@ CLIENT_HEADER = "web/2.1.0/ja"
 
 class TimeTreeError(Exception):
     pass
+
+
+class RateLimitError(TimeTreeError):
+    pass
+
+
+def default_session_file() -> Path:
+    cache_home = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    return Path(cache_home) / "timetree" / "session.json"
 
 
 class TimeTreeClient:
@@ -52,6 +62,10 @@ class TimeTreeClient:
 
     def _request(self, method: str, path: str, **kwargs) -> requests.Response:
         r = self.session.request(method, BASE_URL + path, timeout=30, **kwargs)
+        if r.status_code == 429:
+            raise RateLimitError(
+                f"{method} {path}: HTTP 429: リクエスト回数の制限に掛かりました。しばらく待ってから再実行してください"
+            )
         if r.status_code >= 400:
             raise TimeTreeError(f"{method} {path}: HTTP {r.status_code}: {r.text[:200]}")
         return r
@@ -68,6 +82,48 @@ class TimeTreeClient:
             "/api/v1/auth/email/signin",
             json={"uid": username, "password": password, "uuid": uuid.uuid4().hex},
         )
+
+    def login_with_cache(self, username: str, password: str, session_file: Path) -> None:
+        """保存済みのセッションが有効ならそれを使い、無効な場合だけログインする。
+
+        ログイン API には回数制限 (HTTP 429) があるため、実行の度にログインしないようにする。
+        """
+        if self._restore_session(username, session_file):
+            return
+        self.login(username, password)
+        self._save_session(username, session_file)
+
+    def _restore_session(self, username: str, session_file: Path) -> bool:
+        try:
+            data = json.loads(session_file.read_text())
+        except (OSError, ValueError):
+            return False
+        if data.get("username") != username or not data.get("session_id"):
+            return False
+        self.session.cookies.set("_session_id", data["session_id"], domain="timetreeapp.com")
+        self.session.headers["X-CSRF-Token"] = data.get("csrf_token", "")
+        # 期限切れなどで無効なセッションは 400/401 になる
+        r = self.session.get(BASE_URL + "/api/v1/user", timeout=30)
+        if r.status_code == 429:
+            raise RateLimitError("HTTP 429: リクエスト回数の制限に掛かりました。しばらく待ってから再実行してください")
+        if r.ok:
+            return True
+        self.session.cookies.clear()
+        self.session.headers.pop("X-CSRF-Token", None)
+        return False
+
+    def _save_session(self, username: str, session_file: Path) -> None:
+        data = {
+            "username": username,
+            "session_id": self.session.cookies.get("_session_id", domain="timetreeapp.com"),
+            "csrf_token": self.session.headers.get("X-CSRF-Token", ""),
+        }
+        session_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # セッション ID は認証情報なので所有者のみ読み書きできるようにする
+        fd = os.open(session_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f)
+        os.chmod(session_file, 0o600)
 
     def calendars(self) -> list[dict]:
         cals = self._request("GET", "/api/v2/calendars").json()["calendars"]
@@ -238,6 +294,10 @@ def main() -> int:
     )
     parser.add_argument("--tz", default="Asia/Tokyo", help="日付の解釈と表示に使うタイムゾーン (default: Asia/Tokyo)")
     parser.add_argument("--exclude-keep", action="store_true", help="キープ (category=2) を除外する")
+    parser.add_argument(
+        "--session-file", type=Path, default=default_session_file(),
+        help="ログインセッションの保存先 (default: $XDG_CACHE_HOME/timetree/session.json)",
+    )
     parser.add_argument("--json", action="store_true", help="JSON で出力する")
     args = parser.parse_args()
 
@@ -252,7 +312,7 @@ def main() -> int:
 
     client = TimeTreeClient()
     try:
-        client.login(username, password)
+        client.login_with_cache(username, password, args.session_file)
         results = collect(client, day, local_tz, args.calendar, args.exclude_keep)
     except (TimeTreeError, requests.RequestException) as e:
         print(f"error: {e}", file=sys.stderr)
