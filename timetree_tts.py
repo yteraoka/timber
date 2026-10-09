@@ -94,7 +94,7 @@ def _describe(o: Occurrence, day: date, yomi: dict[str, str]) -> str:
 def build_script(day: date, occurrences: list[Occurrence], today: date, yomi: dict[str, str] | None = None) -> str:
     """予定一覧から読み上げる文章を作る。"""
     label = "今日" if day == today else "明日" if (day - today).days == 1 else ""
-    header = f"TimeTreeです。{_date_ja(day)}、{WEEKDAYS[day.weekday()]}曜日"
+    header = f"タイムツリーです。{_date_ja(day)}、{WEEKDAYS[day.weekday()]}曜日"
     if not occurrences:
         return f"{header}。{label or 'この日'}の予定はありません。"
     lines = [f"{header}。{label or 'この日'}の予定は{len(occurrences)}件です。"]
