@@ -1,15 +1,16 @@
 # timber
 
-共有カレンダーサービス [TimeTree](https://timetreeapp.com/) から、指定した日付の予定を取得するコマンドラインツールです。
+共有カレンダーサービス [TimeTree](https://timetreeapp.com/) から、指定した日付の予定を取得するコマンドラインツールです。予定を読み上げる音声ファイル (Google Home などで再生する用) も作成できます。
 
 TimeTree Web 版が内部で利用している API を使っています。公式に公開された API ではないため、TimeTree 側の変更で動かなくなる可能性があります。
 
 ## 必要なもの
 
 - [uv](https://docs.astral.sh/uv/)
-  - Python 本体と依存パッケージ (`requests`, `python-dateutil`) は `uv run` が自動でインストールします。使う Python のバージョンは `.python-version`、依存パッケージのバージョンは `uv.lock` で固定しています
+  - Python 本体と依存パッケージ (`requests`, `python-dateutil`, `google-genai`) は `uv run` が自動でインストールします。使う Python のバージョンは `.python-version`、依存パッケージのバージョンは `uv.lock` で固定しています
 - メールアドレスとパスワードでログインできる TimeTree アカウント
   - Apple / Google / Facebook アカウントでのログインには対応していません
+- 読み上げ音声を作る場合は [Gemini API](https://ai.google.dev/gemini-api/docs/speech-generation) の API キー
 
 ## セットアップ
 
@@ -90,6 +91,45 @@ timetree 2026-10-01
 ```
 
 終日予定の `start` / `end` は日付 (`YYYY-MM-DD`) で、`end` はその日を含む最終日です。
+
+## 予定の読み上げ音声を作る
+
+`timetree-tts` は指定日の予定を読み上げ用の文章にし、Gemini API の TTS モデルで音声ファイルにします。TimeTree のログイン情報に加えて、Gemini API のキーを環境変数で渡します (`GOOGLE_API_KEY` でも可)。
+
+```sh
+export GEMINI_API_KEY=your-api-key
+
+# 今日の予定を schedule.wav に出力
+uv run timetree-tts
+
+# Flash-Lite モデルで MP3 に出力
+uv run timetree-tts --model flash-lite -o today.mp3
+
+# 音声を作らず、読み上げる文章だけ確認する
+uv run timetree-tts --text-only
+```
+
+読み上げる文章は次のようになります。
+
+```
+10月9日、金曜日。今日の予定は3件です。
+終日、燃えるゴミ。
+10月8日から10月10日まで、出張。
+10時から11時30分まで、歯医者、場所は駅前歯科。
+以上です。
+```
+
+### オプション
+
+`date`, `-c`, `--tz`, `--exclude-keep`, `--session-file` は `timetree` と同じです。
+
+| オプション | 説明 |
+| --- | --- |
+| `-o`, `--output` | 出力ファイル (既定: `schedule.wav`)。拡張子で形式を決めます (`.wav`: 24kHz モノラル 16bit PCM の WAV、`.mp3`: MP3) |
+| `-m`, `--model` | TTS モデル。`flash` (`gemini-3.8-flash-tts`、既定)、`flash-lite` (`gemini-3.8-flash-lite-tts`)、またはモデル ID をそのまま指定 |
+| `--voice` | 声の名前 (既定: `Kore`)。`Puck`, `Charon`, `Aoede` など。一覧は [ドキュメント](https://ai.google.dev/gemini-api/docs/speech-generation) を参照 |
+| `--style` | 話し方の指示 (既定: 朝のお知らせのように明るく落ち着いたトーン)。空文字を渡すと指定しません |
+| `--text-only` | 音声を作らず、読み上げる文章を表示して終了します |
 
 ## 仕組み
 

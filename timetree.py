@@ -277,8 +277,8 @@ def collect(
     return results
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="TimeTree の指定日の予定を取得する")
+def add_fetch_arguments(parser: argparse.ArgumentParser) -> None:
+    """予定の取得に使う引数を追加する (timetree / timetree-tts で共通)。"""
     parser.add_argument("date", nargs="?", help="YYYY-MM-DD (省略時は今日)")
     parser.add_argument(
         "-c", "--calendar", action="append", default=[],
@@ -290,22 +290,31 @@ def main() -> int:
         "--session-file", type=Path, default=default_session_file(),
         help="ログインセッションの保存先 (default: $XDG_CACHE_HOME/timetree/session.json)",
     )
-    parser.add_argument("--json", action="store_true", help="JSON で出力する")
-    args = parser.parse_args()
 
+
+def fetch(args: argparse.Namespace) -> tuple[date, list[Occurrence]]:
+    """add_fetch_arguments で追加した引数に従って予定を取得する。"""
     local_tz = ZoneInfo(args.tz)
     day = date.fromisoformat(args.date) if args.date else datetime.now(local_tz).date()
 
     username = os.environ.get("TIMETREE_USERNAME")
     password = os.environ.get("TIMETREE_PASSWORD")
     if not username or not password:
-        print("TIMETREE_USERNAME and TIMETREE_PASSWORD must be set", file=sys.stderr)
-        return 2
+        raise TimeTreeError("TIMETREE_USERNAME and TIMETREE_PASSWORD must be set")
 
     client = TimeTreeClient()
+    client.login_with_cache(username, password, args.session_file)
+    return day, collect(client, day, local_tz, args.calendar, args.exclude_keep)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="TimeTree の指定日の予定を取得する")
+    add_fetch_arguments(parser)
+    parser.add_argument("--json", action="store_true", help="JSON で出力する")
+    args = parser.parse_args()
+
     try:
-        client.login_with_cache(username, password, args.session_file)
-        results = collect(client, day, local_tz, args.calendar, args.exclude_keep)
+        _, results = fetch(args)
     except (TimeTreeError, requests.RequestException) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
