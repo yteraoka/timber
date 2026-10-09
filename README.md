@@ -119,6 +119,17 @@ uv run timetree-tts --text-only
 以上です。
 ```
 
+### Gemini API キーの作成
+
+1. [Google AI Studio の API キーのページ](https://aistudio.google.com/apikey) を開き、Google アカウントでログインします (初回は利用規約への同意を求められます)
+2. 「API キーを作成」(Create API key) を押します
+3. キーを紐付ける Google Cloud プロジェクトを選びます。プロジェクトが無ければ、その場で新しく作成できます
+4. 表示された API キーをコピーし、`GEMINI_API_KEY` に設定します
+
+`TIMETREE_USERNAME` などと同じく、`.envrc` に書いておくと便利です。API キーはパスワードと同じように扱い、リポジトリにコミットしないでください。
+
+API キーは無料枠で使い始められますが、無料枠にはリクエスト数の制限があり、送信した内容が Google のサービス改善に使われることがあります。制限を超えて使う場合や、データを改善に使わせたくない場合は、AI Studio でプロジェクトに課金 (Billing) を設定してください。料金と制限は [料金ページ](https://ai.google.dev/gemini-api/docs/pricing) と [レート制限のページ](https://ai.google.dev/gemini-api/docs/rate-limits) で確認できます。
+
 ### オプション
 
 `date`, `-c`, `--tz`, `--exclude-keep`, `--session-file` は `timetree` と同じです。
