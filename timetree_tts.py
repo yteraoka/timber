@@ -3,6 +3,7 @@
 予定を読み上げ用の文章にし、Gemini API の TTS モデルで音声にする。
 TimeTree の認証情報は timetree コマンドと同じく TIMETREE_USERNAME / TIMETREE_PASSWORD、
 Gemini API のキーは GEMINI_API_KEY (または GOOGLE_API_KEY) から読む。
+予定のタイトルと場所は、読み方の辞書 (yomi.toml) で読み仮名に置き換えてから読み上げる。
 
     uv run timetree-tts -o today.wav
     uv run timetree-tts 2026-09-30 --model flash-lite -o schedule.mp3
@@ -12,7 +13,10 @@ from __future__ import annotations
 
 import argparse
 import base64
+import os
+import re
 import sys
+import tomllib
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -35,6 +39,29 @@ MIME_TYPES = {
 WEEKDAYS = "月火水木金土日"
 
 
+def default_yomi_file() -> Path:
+    config_home = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return Path(config_home) / "timetree" / "yomi.toml"
+
+
+def load_yomi(path: Path) -> dict[str, str]:
+    """読み方の辞書 (語 = "読み" の TOML) を読む。"""
+    with path.open("rb") as f:
+        data = tomllib.load(f)
+    bad = [k for k, v in data.items() if not isinstance(v, str) or not k]
+    if bad:
+        raise ValueError(f"readings must be non-empty keys with string values: {', '.join(bad)}")
+    return data
+
+
+def apply_yomi(text: str, yomi: dict[str, str]) -> str:
+    """辞書の語を読みに置き換える。長い語を優先し、置き換えた結果は再度置き換えない。"""
+    if not yomi or not text:
+        return text
+    pattern = re.compile("|".join(map(re.escape, sorted(yomi, key=len, reverse=True))))
+    return pattern.sub(lambda m: yomi[m.group(0)], text)
+
+
 def _date_ja(d: date) -> str:
     return f"{d.month}月{d.day}日"
 
@@ -43,12 +70,13 @@ def _time_ja(dt: datetime) -> str:
     return f"{dt.hour}時" + (f"{dt.minute}分" if dt.minute else "")
 
 
-def _describe(o: Occurrence, day: date) -> str:
+def _describe(o: Occurrence, day: date, yomi: dict[str, str]) -> str:
     """1 件の予定を読み上げ用の文にする。"""
+    title, location = apply_yomi(o.title, yomi), apply_yomi(o.location, yomi)
     if o.all_day:
         start, end = date.fromisoformat(o.start), date.fromisoformat(o.end)
         when = "終日" if start == end else f"{_date_ja(start)}から{_date_ja(end)}まで"
-        sentence = f"{when}、{o.title}"
+        sentence = f"{when}、{title}"
     else:
         start, end = datetime.fromisoformat(o.start), datetime.fromisoformat(o.end)
 
@@ -57,20 +85,20 @@ def _describe(o: Occurrence, day: date) -> str:
             return _time_ja(dt) if dt.date() == day else f"{_date_ja(dt.date())}{_time_ja(dt)}"
 
         when = f"{at(start)}から" if start == end else f"{at(start)}から{at(end)}まで"
-        sentence = f"{when}、{o.title}"
-    if o.location:
-        sentence += f"、場所は{o.location}"
+        sentence = f"{when}、{title}"
+    if location:
+        sentence += f"、場所は{location}"
     return sentence + "。"
 
 
-def build_script(day: date, occurrences: list[Occurrence], today: date) -> str:
+def build_script(day: date, occurrences: list[Occurrence], today: date, yomi: dict[str, str] | None = None) -> str:
     """予定一覧から読み上げる文章を作る。"""
     label = "今日" if day == today else "明日" if (day - today).days == 1 else ""
-    header = f"{_date_ja(day)}、{WEEKDAYS[day.weekday()]}曜日"
+    header = f"TimeTreeです。{_date_ja(day)}、{WEEKDAYS[day.weekday()]}曜日"
     if not occurrences:
         return f"{header}。{label or 'この日'}の予定はありません。"
     lines = [f"{header}。{label or 'この日'}の予定は{len(occurrences)}件です。"]
-    lines += [_describe(o, day) for o in occurrences]
+    lines += [_describe(o, day, yomi or {}) for o in occurrences]
     lines.append("以上です。")
     return "\n".join(lines)
 
@@ -109,6 +137,10 @@ def main() -> int:
     )
     parser.add_argument("--voice", default=DEFAULT_VOICE, help=f"声の名前 (default: {DEFAULT_VOICE})")
     parser.add_argument("--style", default=DEFAULT_STYLE, help="話し方の指示。空文字で指定なし")
+    parser.add_argument(
+        "--yomi-file", type=Path,
+        help="読み方の辞書 (default: $XDG_CONFIG_HOME/timetree/yomi.toml。無ければ使わない)",
+    )
     parser.add_argument("--text-only", action="store_true", help="音声を作らず、読み上げる文章を表示して終わる")
     args = parser.parse_args()
 
@@ -117,13 +149,26 @@ def main() -> int:
         parser.error(f"unsupported output extension: {args.output.suffix} (use {' / '.join(MIME_TYPES)})")
     model = MODELS.get(args.model, args.model)
 
+    # 既定の辞書は無ければ使わない。--yomi-file で指定したものは無ければエラー
+    yomi_file = args.yomi_file or default_yomi_file()
+    yomi: dict[str, str] = {}
+    if args.yomi_file or yomi_file.exists():
+        try:
+            yomi = load_yomi(yomi_file)
+        except OSError as e:
+            print(f"error: failed to load yomi file: {e}", file=sys.stderr)
+            return 1
+        except (tomllib.TOMLDecodeError, ValueError) as e:
+            print(f"error: failed to load yomi file {yomi_file}: {e}", file=sys.stderr)
+            return 1
+
     try:
         day, results = fetch(args)
     except (TimeTreeError, requests.RequestException) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 
-    text = build_script(day, results, datetime.now(ZoneInfo(args.tz)).date())
+    text = build_script(day, results, datetime.now(ZoneInfo(args.tz)).date(), yomi)
     if args.text_only:
         print(text)
         return 0
