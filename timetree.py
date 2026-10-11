@@ -121,6 +121,11 @@ class TimeTreeClient:
         cals = self._request("GET", "/api/v2/calendars").json()["calendars"]
         return [c for c in cals if not c.get("deactivated_at")]
 
+    def labels(self, calendar_id: int) -> dict[int, str]:
+        """ラベルの ID と名前の対応を返す。名前の無いラベルは含めない。"""
+        labels = self._request("GET", f"/api/v1/calendar/{calendar_id}/labels").json()["calendar_labels"]
+        return {lb["id"]: lb["name"] for lb in labels if lb.get("name")}
+
     def events(self, calendar_id: int) -> list[dict]:
         # 範囲指定の API は無く、Web 版と同じく sync API で全件を取得する。
         # chunk が true の間は返ってきた since を付けて続きを取得する。
@@ -146,6 +151,7 @@ class Occurrence:
     note: str
     url: str
     category: int
+    label: str  # ラベル名。誰の予定かを表すのに使われることが多い。名前の無いラベルは空文字
 
     def format(self) -> str:
         if self.all_day:
@@ -249,6 +255,7 @@ def collect(
 
     results: list[Occurrence] = []
     for cal in cals:
+        labels = client.labels(cal["id"])
         for ev in client.events(cal["id"]):
             if ev.get("deactivated_at"):
                 continue
@@ -270,6 +277,7 @@ def collect(
                         note=ev.get("note") or "",
                         url=ev.get("url") or "",
                         category=ev.get("category", 1),
+                        label=labels.get(ev.get("label_id"), ""),
                     )
                 )
     # 終日予定を先頭に、その後は開始時刻順

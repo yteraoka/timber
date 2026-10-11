@@ -3,7 +3,7 @@
 予定を読み上げ用の文章にし、Gemini API の TTS モデルで音声にする。
 TimeTree の認証情報は timetree コマンドと同じく TIMETREE_USERNAME / TIMETREE_PASSWORD、
 Gemini API のキーは GEMINI_API_KEY (または GOOGLE_API_KEY) から読む。
-予定のタイトルと場所は、読み方の辞書 (yomi.toml) で読み仮名に置き換えてから読み上げる。
+予定のラベル名 (誰の予定か)・タイトル・場所は、読み方の辞書 (yomi.toml) で読み仮名に置き換えてから読み上げる。
 
     uv run timetree-tts -o today.wav
     uv run timetree-tts 2026-09-30 --model flash-lite -o schedule.mp3
@@ -73,6 +73,9 @@ def _time_ja(dt: datetime) -> str:
 def _describe(o: Occurrence, day: date, yomi: dict[str, str]) -> str:
     """1 件の予定を読み上げ用の文にする。"""
     title, location = apply_yomi(o.title, yomi), apply_yomi(o.location, yomi)
+    # ラベル名 (パパ / ママなど) で誰の予定かを読む
+    if o.label:
+        title = f"{apply_yomi(o.label, yomi)}、{title}"
     if o.all_day:
         start, end = date.fromisoformat(o.start), date.fromisoformat(o.end)
         when = "終日" if start == end else f"{_date_ja(start)}から{_date_ja(end)}まで"
